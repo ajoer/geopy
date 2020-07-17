@@ -371,14 +371,40 @@ class RequestsAdapter(BaseSyncAdapter):
         resp = self._request(url, timeout=timeout, headers=headers)
         return resp.text
 
-    def get_json(self, url, *, timeout, headers):
+        def get_json(self, url, *, timeout, headers):
         resp = self._request(url, timeout=timeout, headers=headers)
+
+        rjson = resp.json()
+        if rjson == []: return None
+        information = rjson[0]
+        osmid = information["osm_id"]
+        osmtype = information["osm_type"][0].upper()
+        cclass = information["class"]
+        placeid = information["place_id"]
+    
+        # extract the country where the location is, in English
+        detail_url = f"https://nominatim.openstreetmap.org/details.php?osmtype={osmtype}&osmid={osmid}&class={cclass}&accept-language=en"
+        detail_resp = requests.get(detail_url)
+        soup = BeautifulSoup(detail_resp.text, 'html.parser')
+       
         try:
-            return resp.json()
-        except ValueError:
-            raise GeocoderParseError(
-                "Could not deserialize using deserializer:\n%s" % resp.text
-            )
+            table = soup.find('table', attrs={'class':'table table-striped table-responsive', 'id': "address"})
+            table_body = table.find('tbody')
+            rows = table_body.find_all('tr')
+            country = None
+
+            for row in rows:
+                cols = row.find_all('td')
+                if cols[1].text.strip() == "place:country":
+                    country = cols[0].text.strip()
+                elif cols[1].text.strip() == "<td>place:country_code</td>":
+                    country = cols[0].text.strip()
+                if country != None:
+                    return country
+
+        except IndexError:
+            english_name = soup.find_all('h1')[1].text.strip()
+            return english_name
 
     def _request(self, url, *, timeout, headers):
         try:
